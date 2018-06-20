@@ -18,7 +18,6 @@
 
 #import <XCTest/XCTest.h>
 
-#include "absl/strings/str_cat.h"
 #import "Firestore/Example/Tests/Util/FSTHelpers.h"
 #import "Firestore/Source/Core/FSTTypes.h"
 #import "Firestore/Source/Local/FSTLRUGarbageCollector.h"
@@ -34,6 +33,7 @@
 #include "Firestore/core/src/firebase/firestore/model/document_key_set.h"
 #include "Firestore/core/src/firebase/firestore/model/precondition.h"
 #include "Firestore/core/test/firebase/firestore/testutil/testutil.h"
+#include "absl/strings/str_cat.h"
 
 using firebase::firestore::auth::User;
 using firebase::firestore::model::DocumentKey;
@@ -58,7 +58,6 @@ NS_ASSUME_NONNULL_BEGIN
   User _user;
 }
 
-
 - (void)setUp {
   [super setUp];
 
@@ -80,15 +79,13 @@ NS_ASSUME_NONNULL_BEGIN
   _queryCache = [_persistence queryCache];
   _documentCache = [_persistence remoteDocumentCache];
   _mutationQueue = [_persistence mutationQueueForUser:_user];
-  _initialSequenceNumber =
-          _persistence.run("start querycache", [&]() -> FSTListenSequenceNumber {
-            [_queryCache start];
-            [_mutationQueue start];
-            _gc = ((id<FSTLRUDelegate>)_persistence.referenceDelegate).gc;
-            return _persistence.currentSequenceNumber;
-          });
+  _initialSequenceNumber = _persistence.run("start querycache", [&]() -> FSTListenSequenceNumber {
+    [_queryCache start];
+    [_mutationQueue start];
+    _gc = ((id<FSTLRUDelegate>)_persistence.referenceDelegate).gc;
+    return _persistence.currentSequenceNumber;
+  });
 }
-
 
 - (id<FSTPersistence>)newPersistence {
   @throw FSTAbstractMethodException();  // NOLINT
@@ -103,9 +100,8 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (int)queryCountForPercentile:(int)percentile {
-  return _persistence.run("query count", [&]() -> int {
-    return [_gc queryCountForPercentile:percentile];
-  });
+  return _persistence.run("query count",
+                          [&]() -> int { return [_gc queryCountForPercentile:percentile]; });
 }
 
 - (int)removeQueriesThroughSequenceNumber:(FSTListenSequenceNumber)sequenceNumber
@@ -142,16 +138,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)updateTargetInTransaction:(FSTQueryData *)queryData {
   NSData *token = [@"hello" dataUsingEncoding:NSUTF8StringEncoding];
   FSTQueryData *updated =
-          [queryData queryDataByReplacingSnapshotVersion:queryData.snapshotVersion
-                                             resumeToken:token
-                                          sequenceNumber:_persistence.currentSequenceNumber];
+      [queryData queryDataByReplacingSnapshotVersion:queryData.snapshotVersion
+                                         resumeToken:token
+                                      sequenceNumber:_persistence.currentSequenceNumber];
   [_queryCache updateQueryData:updated];
 }
 
 - (FSTQueryData *)addNextQuery {
-  return _persistence.run("adding query", [&]() -> FSTQueryData * {
-    return [self addNextQueryInTransaction];
-  });
+  return _persistence.run("adding query",
+                          [&]() -> FSTQueryData * { return [self addNextQueryInTransaction]; });
 }
 
 // Simulates a document being mutated and then having that mutation ack'd.
@@ -165,9 +160,8 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)markDocumentEligibleForGC:(const DocumentKey &)docKey {
-  _persistence.run("Removing mutation reference", [&]() {
-    [self markDocumentEligibleForGCInTransaction:docKey];
-  });
+  _persistence.run("Removing mutation reference",
+                   [&]() { [self markDocumentEligibleForGCInTransaction:docKey]; });
 }
 
 - (DocumentKey)markADocumentEligibleForGCInTransaction {
@@ -364,7 +358,8 @@ NS_ASSUME_NONNULL_BEGIN
   }
   // GC up through 20th query, which is 20%.
   // Expect to have GC'd 10 targets, since every other target is live
-  int removed = [self removeQueriesThroughSequenceNumber:20 + _initialSequenceNumber liveQueries:liveQueries];
+  int removed =
+      [self removeQueriesThroughSequenceNumber:20 + _initialSequenceNumber liveQueries:liveQueries];
   XCTAssertEqual(10, removed);
   // Make sure we removed the even targets with targetID <= 20.
   _persistence.run("verify remaining targets are > 20 or odd", [&]() {
@@ -424,8 +419,8 @@ NS_ASSUME_NONNULL_BEGIN
   });
 
   // Mark 5 documents eligible for GC. This simulates documents that were mutated then ack'd.
-  // Since they were ack'd, they are no longer in a mutation queue, and there is nothing keeping them
-  // alive.
+  // Since they were ack'd, they are no longer in a mutation queue, and there is nothing keeping
+  // them alive.
   std::unordered_set<DocumentKey, DocumentKeyHash> toBeRemoved;
   _persistence.run("add orphaned docs (previously mutated, then ack'd)", [&]() {
     for (int i = 0; i < 5; i++) {
@@ -446,7 +441,8 @@ NS_ASSUME_NONNULL_BEGIN
       XCTAssertFalse([_queryCache containsKey:key]);
     }
     for (const DocumentKey &key : expectedRetained) {
-      XCTAssertNotNil([_documentCache entryForKey:key], @"Missing document %s", key.ToString().c_str());
+      XCTAssertNotNil([_documentCache entryForKey:key], @"Missing document %s",
+                      key.ToString().c_str());
     }
   });
   [_persistence shutdown];
@@ -614,15 +610,16 @@ NS_ASSUME_NONNULL_BEGIN
   });
 
   // Finally, do the garbage collection, up to but not including the removal of middleTarget
-  NSDictionary<NSNumber *, FSTQueryData *> *liveQueries = @{@(oldestTarget.targetID): oldestTarget};
+  NSDictionary<NSNumber *, FSTQueryData *> *liveQueries =
+      @{ @(oldestTarget.targetID) : oldestTarget };
   int queriesRemoved = [self removeQueriesThroughSequenceNumber:upperBound liveQueries:liveQueries];
   XCTAssertEqual(1, queriesRemoved, @"Expected to remove newest target");
   int docsRemoved = [self removeOrphanedDocumentsThroughSequenceNumber:upperBound];
   XCTAssertEqual(expectedRemoved.size(), docsRemoved);
   _persistence.run("verify results", [&]() {
     for (const DocumentKey &key : expectedRemoved) {
-      XCTAssertNil([_documentCache entryForKey:key],
-                   @"Did not expect to find %s in document cache", key.ToString().c_str());
+      XCTAssertNil([_documentCache entryForKey:key], @"Did not expect to find %s in document cache",
+                   key.ToString().c_str());
       XCTAssertFalse([_queryCache containsKey:key], @"Did not expect to find %s in queryCache",
                      key.ToString().c_str());
     }
